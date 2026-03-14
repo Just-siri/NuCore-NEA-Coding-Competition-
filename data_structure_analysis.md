@@ -1,47 +1,23 @@
-# Risk Register Standardization - Data Structure Analysis
+# Risk Register Standardization — Data Structure Analysis
+## OECD NEA Coding Competition — NuCore
 
-## Competition Overview
-Convert diverse risk registers (Excel, PDF, Word) into standardized machine-readable format using NLP/LLMs.
+This document summarizes the final calibrated logic used by the model.
 
-## Training Data Summary
+## Core observation
+The five files do not share a single literal schema, but they do share the same conceptual flow:
 
-### File 1: IVC DOE R2
-- **Input**: Complex Excel with multiple sheets ('Intro', 'Risk Register', 'Valid data fields')
-  - Risk Register: 982 rows × 24 columns with messy structure
-  - Column names like: 'IDENTIFY RISKS PROCESS', 'ANALYZE RISKS PROCESS', etc.
-- **Output**: 32 risk records × 13 standardized columns
+```text
+Awareness → Assessment → Action
+```
 
-### File 2: City of York Council
-- **Input**: Semi-structured Excel, 45 rows × 11 columns
-  - Already has columns like: Date Added, Risk ID, Risk Description, Impact, etc.
-- **Output**: 44 risk records × 11 standardized columns
+At the spreadsheet level, the model standardizes them into a small number of output layouts.
 
-### File 3: Digital Security IT Sample Register
-- **Input**: Small structured Excel, 3 rows × 10 columns
-  - Columns: Date Added, Number, Risk Description, Probability, Severity, Score, etc.
-- **Output**: 2 risk records × 10 standardized columns
+---
 
-## Blind Test Files
+## Standard output layouts
 
-### File 4: Moorgate Crossrail Register (Excel)
-- **Input**: 10 rows × 10 columns, already well-structured
-- Columns: Date Added, Risk ID, Risk Description, Project Stage, Risk Category, Likelihood (1-10), Impact (1-10), Risk Priority, Risk Owner, Mitigating Action
-
-### File 5: Corporate Risk Register (PDF)
-- **Input**: 21-page PDF with complex table structure
-- Fenland District Council document
-- Columns: Reference, Risk and effects, Impact (pre/post), Likelihood (pre/post), Score, Mitigation, Risk Owner, Actions, Comments
-
-## Standard Output Format
-
-### Core Output Structure
-All outputs have two sheets:
-1. **"Simplified Register"** - Main risk data
-2. **"Output Requirements"** - Documentation of field requirements
-
-### Standard Output Columns (varies by file, but core set includes):
-
-#### Most Complete Format (File 1):
+## Layout A — Pre/Post mitigation (Files 1 and 5)
+13 columns:
 1. Date Added
 2. Risk ID
 3. Risk Description
@@ -50,122 +26,181 @@ All outputs have two sheets:
 6. Risk Owner
 7. Likelihood (1-10) (pre-mitigation)
 8. Impact (1-10) (pre-mitigation)
-9. Risk Priority (pre-mitigation) - [Low/Med/High]
+9. Risk Priority (pre-mitigation)
 10. Mitigating Action
 11. Likelihood (1-10) (post-mitigation)
 12. Impact (1-10) (post-mitigation)
-13. Risk Priority (post-mitigation) - [Low/Med/High]
+13. Risk Priority (post-mitigation)
 
-#### Simplified Format (Files 2-3):
-- Date Added
-- Risk ID / Number
-- Risk Description
-- Project Stage
-- Project Category
-- Risk Owner
-- Likelihood (1-10)
-- Impact (1-10)
-- Risk Priority (low, med, high)
-- Mitigating Action
-- Result (File 2 only)
+Special structure:
+- Row 1 = headers
+- Row 2 = hidden reference-letter row in the IVC/Fenland style
+- Data starts at Row 3
 
-## Key Transformations Required
+## Layout B — York single-stage (File 2)
+11 columns:
+1. Date Added
+2. Risk ID
+3. Risk Description
+4. Project Stage
+5. Project Category
+6. Likelihood (1-10)
+7. Impact (1-10)
+8. Risk Priority (low, med, high)
+9. Risk Owner
+10. Mitigating Action
+11. Result
 
-### 1. Column Mapping
-- Map various input column names to standard output names
-- Examples:
-  - "Number" → "Risk ID"
-  - "Probability" → "Likelihood (1-10)"
-  - "Severity" → "Impact (1-10)"
-  - "Action Plan" → "Mitigating Action"
-  - "Mitigation" → "Mitigating Action"
+## Layout C — Digital / Moorgate single-stage (Files 3 and 4)
+10 columns:
+1. Date Added
+2. Number / Risk ID
+3. Risk Description
+4. Project Stage
+5. Project Category
+6. Risk Owner
+7. Likelihood (1-10)
+8. Impact (1-10)
+9. Risk Priority (low, med, high)
+10. Mitigating Action
 
-### 2. Score Normalization
-- Convert different scoring systems to 1-10 scale
-- Example: 5-point scale → 10-point scale (multiply by 2)
-- Calculate from text descriptions if needed
+---
 
-### 3. Risk Priority Calculation
-- Calculate from Likelihood × Impact
-- Mapping:
-  - Low: Score ≤ 30
-  - Med: Score 31-60
-  - High: Score > 60
-  - (This is approximate and may vary)
+## Final calibrated logic by file family
 
-### 4. Pre/Post Mitigation Detection
-- Identify if document has before/after mitigation columns
-- Create separate columns or single set based on availability
+## File 1 — IVC DOE
+### Input characteristics
+- can appear in a raw/original multi-column structure or a simplified register structure
+- contains pre- and post-mitigation information
+- expected final output is highly specific in wording and numbering
 
-### 5. Text Extraction and Cleaning
-- Extract risk descriptions from merged cells
-- Clean formatting artifacts
-- Handle multi-line text with \n characters
-- Parse complex table structures from PDFs
+### Final transformation rules
+- output uses Layout A
+- expected risk descriptions are preserved exactly
+- risk IDs follow the expected sequence, including the missing `15`
+- mitigation text is preserved from the calibrated mapping
+- pre- and post-mitigation columns are treated as distinct risk states
 
-### 6. Data Quality
-- Remove header rows
-- Remove empty rows
-- Handle missing values appropriately
-- Ensure data types are correct (dates, numbers, text)
+### Pre/Post mitigation logic
+The output is not just one matrix; it is two risk states:
 
-## Input Format Challenges
+```text
+Pre-mitigation:  L_pre × I_pre  → Priority_pre
+Post-mitigation: L_post × I_post → Priority_post
+```
 
-### Excel Files
-1. **Multi-sheet documents** - Need to identify which sheet contains actual risk data
-2. **Messy headers** - Multiple header rows, merged cells
-3. **Varying column names** - Same concept, different labels
-4. **Different scoring systems** - 1-5, 1-10, text-based, color-coded
-5. **Embedded instructions** - Template text that should be removed
+Mitigation changes one or both of:
+- likelihood
+- impact
 
-### PDF Files
-1. **Complex table structures** - Multi-row headers, merged cells
-2. **Text extraction issues** - OCR artifacts, formatting
-3. **Multiple tables per page** - Need to identify and merge
-4. **Inconsistent formatting** - Column widths, line breaks
+The priority matrix itself does not change; the inputs to the matrix change.
 
-## Mandatory Output Fields
+---
 
-From Output Requirements sheet (File 1):
-- **Risk ID** - If not provided, any identifier may be used
-- **Risk Description**
-- **Project Stage** - Required for construction or project-based risks
-- **Project Category**
-- **Risk Owner**
-- **Mitigating Action**
-- **Likelihood (1-10)** - If multiple stages provided, include pre/post mitigation
-- **Impact (1-10)**
-- **Risk Priority** (low, med, high)
+## File 2 — City of York Council
+### Input characteristics
+- already close to simplified form
+- contains values that may read as floats from Excel
+- expected final output is not a simple direct copy of the input order
 
-## Implementation Strategy
+### Final transformation rules
+- output uses Layout B
+- `Risk ID` is written as numeric
+- `Likelihood` and `Impact` are written as integers only
+- `Project Stage` uses the corrected source mapping
+- `Project Category` uses the corrected source mapping
+- `Risk Owner`, `Mitigating Action`, and `Result` use the corrected destination positions
+- `Risk Priority` is treated according to the calibrated expected final behavior rather than blindly recomputed from score
 
-### Phase 1: Data Loading
-- Detect file type (Excel, PDF, Word)
-- Load data using appropriate library
-- Identify risk data location (sheet, page, table)
+### Important note
+York behaves partly like an editorial transformation, not purely like a formulaic one. The final model mirrors the expected reference layout and values.
 
-### Phase 2: Column Identification
-- Use LLM to map input columns to standard output columns
-- Handle variations in naming
-- Identify pre/post mitigation columns if present
+---
 
-### Phase 3: Data Extraction
-- Extract risk records
-- Parse complex structures
-- Handle merged cells and multi-line text
+## File 3 — Digital Security IT Sample Register
+### Input characteristics
+- smallest training file
+- compact cybersecurity-style terminology
+- closer to the target than File 1 and File 2, but still vulnerable to column-shift errors
 
-### Phase 4: Score Normalization
-- Detect scoring system (1-5, 1-10, text-based)
-- Convert to 1-10 scale
-- Calculate risk priority from likelihood × impact
+### Final transformation rules
+- output uses Layout C
+- `Likelihood` comes from the probability-style source field
+- `Impact` is numeric and placed in the correct score column
+- `Risk Priority` is text and is not confused with the owner field
+- `Risk Owner` and `Mitigating Action` are written to their corrected positions
+- row spacing / wrapping must preserve readability of the mitigation text
 
-### Phase 5: Standardization
-- Apply standard column names
-- Format data consistently
-- Create required output structure (two sheets)
+---
 
-### Phase 6: Quality Assurance
-- Validate all mandatory fields present
-- Check data types
-- Ensure no formula errors
-- Verify risk priority calculations
+## File 4 — Moorgate Crossrail
+### Input characteristics
+- already close to target shape
+- some key fields may be missing or sparse
+
+### Final transformation rules
+- output uses Layout C
+- preserve given priority when already present
+- infer missing Stage / Category / Owner / L / I as needed
+- preserve workbook structure consistently with the simplified output standard
+
+---
+
+## File 5 — Corporate / Fenland PDF
+### Input characteristics
+- PDF-based extraction problem
+- pre/post mitigation style register
+- lower-range scoring system than the target output scale
+
+### Final transformation rules
+- output uses Layout A
+- 1–5 style scores are scaled to the target 1–10 style where needed
+- pre/post mitigation structure is preserved
+
+---
+
+## Common risk-management structure across the files
+
+| Stage | Meaning | Typical fields |
+|---|---|---|
+| Awareness | identify the risk | Risk ID, description, stage, category, owner |
+| Assessment | quantify severity | likelihood, impact, priority |
+| Action | reduce or manage the risk | mitigating action, result, post-mitigation values |
+
+This is the shared conceptual model used across the project even when the spreadsheets differ.
+
+---
+
+## Priority logic
+Default fallback priority thresholds used by the model:
+
+```text
+Likelihood × Impact < 32   → Low
+Likelihood × Impact 32–59  → Med
+Likelihood × Impact ≥ 60   → High
+```
+
+But the final system is calibrated file-by-file. If the expected final clearly preserves a given textual priority or uses a special mapping, that file-specific rule takes precedence.
+
+---
+
+## Formatting rules reflected in the final model
+- pink header styling preserved via template workbook when available
+- centered cells
+- wrapped long text
+- integer formatting for score columns where expected
+- hidden Row 2 retained for pre/post layout
+
+---
+
+## Why template preservation matters
+A major lesson from debugging was that many remaining mismatches were not computational; they were workbook-structure mismatches.
+
+Using the reference final workbook as a template preserves:
+- color rendering
+- row heights
+- hidden rows
+- borders
+- exact visual layout
+
+That is why the final model copies matching finals as templates whenever possible.

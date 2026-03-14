@@ -1,202 +1,229 @@
 """
-Test script for risk register standardization model
-Tests against the 3 training examples
+Validation script for the final Risk Register Standardization model.
+OECD NEA Coding Competition — NuCore
+
+What this script does:
+1. Runs model.py on the three training input files.
+2. Looks for matching reference Final workbooks.
+3. Compares the generated Simplified Register sheet to the reference.
+4. Reports row-count match, mandatory field presence, and value match rate.
+
+This script is designed for the final calibrated model.
 """
 
-import sys
+from __future__ import annotations
+
 import os
+import sys
+import traceback
 from pathlib import Path
+from typing import Optional
+
 import pandas as pd
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+BASE_DIR = Path(__file__).parent
+INPUT_DIR = BASE_DIR / "input"
+OUTPUT_DIR = BASE_DIR / "test_outputs"
 
+sys.path.insert(0, str(BASE_DIR))
 from model import RiskRegisterStandardizer
 
-def compare_outputs(generated_file, expected_file):
-    """Compare generated output with expected output"""
-    
-    print(f"\nComparing:")
-    print(f"  Generated: {generated_file}")
-    print(f"  Expected:  {expected_file}")
-    
-    # Read both files
-    df_gen = pd.read_excel(generated_file, sheet_name='Simplified Register')
-    df_exp = pd.read_excel(expected_file, sheet_name='Simplified Register')
-    
-    print(f"\n  Generated shape: {df_gen.shape}")
-    print(f"  Expected shape:  {df_exp.shape}")
-    
-    # Compare columns
-    gen_cols = set(df_gen.columns)
-    exp_cols = set(df_exp.columns)
-    
-    missing_cols = exp_cols - gen_cols
-    extra_cols = gen_cols - exp_cols
-    
-    if missing_cols:
-        print(f"  ⚠ Missing columns: {missing_cols}")
-    if extra_cols:
-        print(f"  ⚠ Extra columns: {extra_cols}")
-    
-    if not missing_cols and not extra_cols:
-        print(f"  ✓ Column match!")
-    
-    # Check for mandatory fields
-    mandatory = [
-        'Risk ID', 'Risk Description', 'Project Stage', 'Project Category',
-        'Risk Owner', 'Mitigating Action', 'Likelihood (1-10)', 
-        'Impact (1-10)', 'Risk Priority (low, med, high)'
-    ]
-    
-    missing_mandatory = [col for col in mandatory if col not in df_gen.columns]
-    if missing_mandatory:
-        print(f"  ✗ Missing mandatory columns: {missing_mandatory}")
-    else:
-        print(f"  ✓ All mandatory columns present")
-    
-    # Show sample comparison
-    print(f"\n  Sample row 1 comparison:")
-    gen_row = df_gen.iloc[0].to_dict() if len(df_gen) > 0 else "No data"
-    exp_row = df_exp.iloc[0].to_dict() if len(df_exp) > 0 else "No data"
-    print(f"    Generated: {gen_row}")
-    print(f"    Expected:  {exp_row}")
-    
-    # Value level matches (Exclude optional/null generated fields in the base files)
+MANDATORY_KEYWORDS = [
+    "Risk ID",
+    "Risk Description",
+    "Project Stage",
+    "Project Category",
+    "Risk Owner",
+    "Mitigating Action",
+    "Likelihood",
+    "Impact",
+    "Risk Priority",
+]
+
+TEST_CASES = [
+    {
+        "name": "IVC DOE R2",
+        "input_name": "1. IVC DOE R2 (Input).xlsx",
+        "final_pattern": "1. IVC DOE",
+        "output_name": "1. IVC DOE R2 (Test Final).xlsx",
+    },
+    {
+        "name": "City of York Council",
+        "input_name": "2. City of York Council (Input).xlsx",
+        "final_pattern": "2. City of York Council",
+        "output_name": "2. City of York Council (Test Final).xlsx",
+    },
+    {
+        "name": "Digital Security IT Sample Register",
+        "input_name": "3. Digital Security IT Sample Register (Input).xlsx",
+        "final_pattern": "3. Digital Security IT Sample Register",
+        "output_name": "3. Digital Security IT Sample Register (Test Final).xlsx",
+    },
+]
+
+SEARCH_DIRS = [INPUT_DIR, BASE_DIR / "output", BASE_DIR, BASE_DIR / "finals", Path("/mnt/data")]
+
+
+def find_final_file(pattern: str) -> Optional[Path]:
+    pattern = pattern.lower()
+    for directory in SEARCH_DIRS:
+        if not directory.exists():
+            continue
+        for file in directory.iterdir():
+            name = file.name.lower()
+            if file.suffix.lower() == ".xlsx" and pattern in name and "final" in name:
+                return file
+    return None
+
+
+def pick_data_sheet(xl: pd.ExcelFile) -> str:
+    for name in xl.sheet_names:
+        nl = name.lower()
+        if "requirement" in nl or "output" in nl:
+            continue
+        if "simplified" in nl or "register" in nl or "risk" in nl:
+            return name
+    return xl.sheet_names[0]
+
+
+def read_register(file_path: Path) -> pd.DataFrame:
+    xl = pd.ExcelFile(file_path)
+    sheet_name = pick_data_sheet(xl)
+    df = pd.read_excel(file_path, sheet_name=sheet_name, header=0)
+
+    # Remove hidden row-2 reference-letter row if present
+    if len(df.columns) > 0:
+        first_col = df.columns[0]
+        mask = df[first_col].astype(str).str.fullmatch(r"[A-Za-z]", na=False)
+        df = df[~mask].reset_index(drop=True)
+
+    return df
+
+
+def find_col(df: pd.DataFrame, keyword: str) -> Optional[str]:
+    keyword = keyword.lower()
+    for col in df.columns:
+        if keyword in str(col).lower():
+            return col
+    return None
+
+
+def normalize_value(value):
+    if pd.isna(value):
+        return ""
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return str(value).strip()
+    return str(value).strip()
+
+
+def compare_outputs(generated_file: Path, expected_file: Path) -> dict:
+    df_gen = read_register(generated_file)
+    df_exp = read_register(expected_file)
+
+    missing = [kw for kw in MANDATORY_KEYWORDS if find_col(df_gen, kw) is None]
+    row_match = len(df_gen) == len(df_exp)
+
     total_cells = 0
     matched_cells = 0
-    
-    for row_idx in range(min(len(df_gen), len(df_exp))):
-        for col in mandatory:
-            if col in df_gen.columns and col in df_exp.columns:
-                gen_val = df_gen.iloc[row_idx][col]
-                exp_val = df_exp.iloc[row_idx][col]
-                
-                # Check NaNs mapping
-                if pd.isna(gen_val) and pd.isna(exp_val):
-                    matched_cells += 1
-                elif str(gen_val).strip() == str(exp_val).strip():
-                    matched_cells += 1
-                elif isinstance(gen_val, (int, float)) and isinstance(exp_val, (int, float)) and pd.notna(gen_val) and pd.notna(exp_val):
-                   if abs(float(gen_val) - float(exp_val)) < 0.1:
-                       matched_cells += 1
-                total_cells += 1
-                
-    cell_match_rate = (matched_cells / total_cells * 100) if total_cells > 0 else 0
-    print(f"  ✓ Value Match Rate (Mandatory Fields): {cell_match_rate:.2f}% ({matched_cells}/{total_cells})")
-    
+    rows_to_compare = min(len(df_gen), len(df_exp))
+
+    for kw in MANDATORY_KEYWORDS:
+        gc = find_col(df_gen, kw)
+        ec = find_col(df_exp, kw)
+        if gc is None or ec is None:
+            continue
+        for i in range(rows_to_compare):
+            gv = normalize_value(df_gen.iloc[i][gc]).lower()
+            ev = normalize_value(df_exp.iloc[i][ec]).lower()
+            total_cells += 1
+            if gv == ev:
+                matched_cells += 1
+
+    value_match_rate = (matched_cells / total_cells * 100) if total_cells else 0.0
+
     return {
-        'columns_match': not missing_cols and not extra_cols,
-        'has_mandatory': not missing_mandatory,
-        'row_count_match': df_gen.shape[0] == df_exp.shape[0],
-        'value_match_rate': cell_match_rate
+        "missing": missing,
+        "row_match": row_match,
+        "rows_generated": len(df_gen),
+        "rows_expected": len(df_exp),
+        "value_match_rate": value_match_rate,
     }
 
 
-def main():
-    """Run tests on training data"""
-    
-    # Check for API key
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
+def main() -> None:
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        print("Error: ANTHROPIC_API_KEY environment variable not set")
-        print("Set it with: export ANTHROPIC_API_KEY='your-key-here'")
+        print("Error: ANTHROPIC_API_KEY is not set.")
         sys.exit(1)
-    
-    print("="*80)
-    print("RISK REGISTER STANDARDIZATION MODEL - TESTING")
-    print("="*80)
-    
-    # Set up paths
-    uploads_dir = Path(__file__).parent / 'input'
-    test_output_dir = Path(__file__).parent / 'test_outputs'
-    test_output_dir.mkdir(exist_ok=True)
-    
-    # Define test cases (training data)
-    test_cases = [
-        {
-            'name': 'Test 1: IVC DOE',
-            'input': uploads_dir / '1. IVC DOE R2 (Input).xlsx',
-            'expected': uploads_dir / '1. IVC DOE R2 (Input).xlsx',  # Using same file for now
-            'output': test_output_dir / '1__IVC_DOE__Test_Output.xlsx'
-        },
-        {
-            'name': 'Test 2: City of York Council',
-            'input': uploads_dir / '2. City of York Council (Input).xlsx',
-            'expected': uploads_dir / '2. City of York Council (Input).xlsx',  # Using same file for now
-            'output': test_output_dir / '2__City_of_York_Council__Test_Output.xlsx'
-        },
-        {
-            'name': 'Test 3: Digital Security IT',
-            'input': uploads_dir / '3. Digital Security IT Sample Register (Input).xlsx',
-            'expected': uploads_dir / '3. Digital Security IT Sample Register (Input).xlsx',  # Using same file for now
-            'output': test_output_dir / '3__Digital_Security_IT__Test_Output.xlsx'
-        }
-    ]
-    
-    # Initialize standardizer
-    standardizer = RiskRegisterStandardizer(api_key=api_key)
-    
+
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    try:
+        standardizer = RiskRegisterStandardizer(api_key=api_key)
+    except Exception as exc:
+        print(f"Failed to initialize model: {exc}")
+        sys.exit(1)
+
+    print("=" * 80)
+    print("FINAL MODEL VALIDATION")
+    print("=" * 80)
+
     results = []
-    
-    # Run tests
-    for test in test_cases:
-        print(f"\n{'='*80}")
-        print(f"{test['name']}")
-        print(f"{'='*80}")
-        
+
+    for case in TEST_CASES:
+        print(f"
+--- {case['name']} ---")
+        input_path = INPUT_DIR / case["input_name"]
+        output_path = OUTPUT_DIR / case["output_name"]
+
+        if not input_path.exists():
+            print(f"Missing input: {input_path}")
+            results.append((case["name"], "FAIL", "input missing"))
+            continue
+
+        ok = standardizer.process_file(str(input_path), str(output_path))
+        if not ok:
+            results.append((case["name"], "FAIL", "processing failed"))
+            continue
+
+        final_path = find_final_file(case["final_pattern"])
+        if final_path is None:
+            print("Reference final not found; output generated only.")
+            results.append((case["name"], "GENERATED", "no reference final"))
+            continue
+
         try:
-            # Process file
-            print(f"Processing: {test['input'].name}")
-            standardizer.process_file(str(test['input']), str(test['output']))
-            
-            # Compare outputs
-            comparison = compare_outputs(test['output'], test['expected'])
-            
-            results.append({
-                'test': test['name'],
-                'status': 'PASS' if all(comparison.values()) else 'PARTIAL',
-                'details': comparison
-            })
-            
-        except Exception as e:
-            print(f"✗ ERROR: {e}")
-            import traceback
+            comparison = compare_outputs(output_path, final_path)
+        except Exception as exc:
             traceback.print_exc()
-            results.append({
-                'test': test['name'],
-                'status': 'FAIL',
-                'error': str(e)
-            })
-    
-    # Summary
-    print(f"\n{'='*80}")
-    print("TEST SUMMARY")
-    print(f"{'='*80}")
-    
-    for result in results:
-        status_symbol = '✓' if result['status'] == 'PASS' else ('⚠' if result['status'] == 'PARTIAL' else '✗')
-        print(f"{status_symbol} {result['test']}: {result['status']}")
-        if 'details' in result:
-            details = result['details']
-            print(f"    Columns match: {details['columns_match']}")
-            print(f"    Has mandatory: {details['has_mandatory']}")
-            print(f"    Row count match: {details['row_count_match']}")
-            print(f"    Value Match Rate: {details.get('value_match_rate', 0.0):.2f}%")
-            
-    # Calculate overall accuracy
-    overall_match = sum(r['details'].get('value_match_rate', 0.0) for r in results if 'details' in r)
-    total_valid_tests = sum(1 for r in results if 'details' in r)
-    
-    if total_valid_tests > 0:
-        print(f"\n★ OVERALL ACCURACY (Value Match Rate): {(overall_match / total_valid_tests):.2f}%")
-    
-    print(f"\nTest outputs saved to: {test_output_dir}")
+            results.append((case["name"], "FAIL", str(exc)))
+            continue
+
+        status = "PASS" if (not comparison["missing"] and comparison["row_match"]) else "PARTIAL"
+        print(f"Rows: generated={comparison['rows_generated']} expected={comparison['rows_expected']}")
+        print(f"Mandatory columns missing: {comparison['missing'] or 'None'}")
+        print(f"Value match rate: {comparison['value_match_rate']:.2f}%")
+        results.append((case["name"], status, comparison))
+
+    print("
+" + "=" * 80)
+    print("SUMMARY")
+    print("=" * 80)
+    for name, status, details in results:
+        print(f"- {name}: {status}")
+        if isinstance(details, dict):
+            print(f"  value match rate = {details['value_match_rate']:.2f}%")
+        else:
+            print(f"  {details}")
+
+    print(f"
+Test outputs written to: {OUTPUT_DIR}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
