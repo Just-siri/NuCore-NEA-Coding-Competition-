@@ -408,22 +408,6 @@ request per file.
 
 ---
 
-## Testing
-
-The model has been validated against three training input–output pairs:
-
-1. IVC DOE R2 — complex 24-column SEV/FRQ register
-2. City of York Council — near-target 11-column register
-3. Digital Security IT Sample Register — compact IT register
-
-Run:
-
-```bash
-python test_model.py
-```
-
----
-
 ## License
 
 This model was created for the OECD NEA Coding Competition.
