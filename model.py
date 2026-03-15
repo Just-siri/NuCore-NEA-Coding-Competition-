@@ -688,62 +688,33 @@ Return JSON array: idx, stage, category, owner, l, i"""
 #  FILE 5 — Fenland DC Corporate Risk Register (blind test, PDF source)
 #
 #  The input is a .pdf — openpyxl cannot read it directly.
-#  Strategy: extract text from the PDF using pdfplumber,
-#  then pass the raw text to Claude which
+#  Strategy: extract text from the PDF using pdfminer/pypdf/PyPDF2
+#  (whichever is installed), then pass the raw text to Claude which
 #  reads the table structure and returns standardised JSON.
 #  Also handles Excel input if the user has pre-converted the PDF.
 # ──────────────────────────────────────────────────────────────
 
 def _extract_pdf_text(path: str) -> str:
-    """Extract raw text from a PDF using pdfplumber (required dependency)."""
+    """Extract raw text from a PDF using pdfminer, pypdf, or PyPDF2."""
     try:
-        import pdfplumber
-        with pdfplumber.open(path) as pdf:
-            pages = []
-            for page in pdf.pages:
-                # Extract tables first (preserves row structure)
-                for table in page.extract_tables():
-                    for row in table:
-                        line = "\t".join(cell or "" for cell in row)
-                        if line.strip():
-                            pages.append(line)
-                # Then any remaining text not captured in tables
-                text = page.extract_text()
-                if text:
-                    pages.append(text)
-        return "\n".join(pages)
+        from pdfminer.high_level import extract_text
+        return extract_text(path)
     except ImportError:
-        raise ImportError(
-            "pdfplumber is required to process PDF files.\n"
-            "Install it with:  pip install pdfplumber"
-        )
-
-
-def _extract_docx_text(path: str) -> str:
-    """Extract raw text from a Word document (.docx) using python-docx.
-    Body paragraphs and table cells are both captured, preserving the
-    tabular structure commonly used for risk registers in Word.
-    """
+        pass
     try:
-        from docx import Document
-        doc   = Document(path)
-        parts = []
-        for para in doc.paragraphs:
-            text = para.text.strip()
-            if text:
-                parts.append(text)
-        for table in doc.tables:
-            for row in table.rows:
-                cells = [c.text.strip() for c in row.cells]
-                line  = "\t".join(cells)
-                if line.strip():
-                    parts.append(line)
-        return "\n".join(parts)
+        import pypdf
+        reader = pypdf.PdfReader(path)
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
     except ImportError:
-        raise ImportError(
-            "python-docx is required to process Word documents.\n"
-            "Install it with:  pip install python-docx"
-        )
+        pass
+    try:
+        import PyPDF2
+        with open(path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
+    except ImportError:
+        pass
+    return ""
 
 
 def process_file5(path: str, client, output_path: str):
@@ -775,22 +746,12 @@ def process_file5(path: str, client, output_path: str):
         raw_text = _extract_pdf_text(path)
         if not raw_text.strip():
             print("  ⚠ Could not extract text from PDF.")
-            print("  Tip: install pdfplumber  →  pip install pdfplumber")
+            print("  Tip: install pdfminer.six  →  pip install pdfminer.six")
             print("  Then rerun, or convert the PDF to Excel first.")
             return
-        source_text = raw_text[:12000]   # stay within token limits
+        source_text = raw_text
         source_type = "raw text extracted from a PDF"
-
-    # ── Word document input ───────────────────────────────────
-    elif suffix == ".docx":
-        print("  Detected Word document — extracting text…")
-        raw_text = _extract_docx_text(path)
-        if not raw_text.strip():
-            print("  ⚠ Could not extract text from .docx.")
-            print("  Tip: install python-docx  →  pip install python-docx")
-            return
-        source_text = raw_text[:12000]
-        source_type = "raw text extracted from a Word document"
+        print(f"  Extracted {len(raw_text):,} chars of text")
 
     else:
         print(f"  ⚠ Unsupported format '{suffix}' for File 5.")
@@ -853,46 +814,23 @@ Return a JSON array — one object per risk — with all fields above."""
 
 def process_generic(path: str, client, output_path: str):
     print("  Using generic processing…")
-    suffix = Path(path).suffix.lower()
+    wb   = openpyxl.load_workbook(path)
+    ws   = get_data_sheet(wb)
+    hdrs = [clean(ws.cell(1, c).value) for c in range(1, ws.max_column + 1)]
 
-    if suffix in (".xlsx", ".xlsm", ".xls", ".xltx", ".xltm"):
-        wb   = openpyxl.load_workbook(path)
-        ws   = get_data_sheet(wb)
-        hdrs = [clean(ws.cell(1, c).value) for c in range(1, ws.max_column + 1)]
-        data = []
-        for r in range(2, ws.max_row + 1):
-            row = {hdrs[c]: clean(ws.cell(r, c + 1).value)
-                   for c in range(len(hdrs)) if ws.cell(r, c + 1).value is not None}
-            if row:
-                data.append({"idx": len(data), **row})
-        source_payload = json.dumps(data[:30], indent=2)
-
-    elif suffix == ".docx":
-        raw_text = _extract_docx_text(path)
-        if not raw_text.strip():
-            print("  ⚠ Could not extract text from .docx — is python-docx installed?")
-            print("  pip install python-docx")
-            return
-        source_payload = raw_text[:10000]
-
-    elif suffix == ".pdf":
-        raw_text = _extract_pdf_text(path)
-        if not raw_text.strip():
-            print("  ⚠ Could not extract text from PDF — is pdfplumber installed?")
-            print("  pip install pdfplumber")
-            return
-        source_payload = raw_text[:10000]
-
-    else:
-        print(f"  ⚠ Unsupported format '{suffix}' — cannot process.")
-        return
+    data = []
+    for r in range(2, ws.max_row + 1):
+        row = {hdrs[c]: clean(ws.cell(r, c + 1).value)
+               for c in range(len(hdrs)) if ws.cell(r, c + 1).value is not None}
+        if row:
+            data.append({"idx": len(data), **row})
 
     SYSTEM = "You are a risk register specialist. Return ONLY valid JSON."
     USER = f"""Standardise these risk register rows to the mandatory output format.
 Output fields: risk_id, desc, stage, category, owner, l, i, priority, mit.
 If pre+post data exists include: l_pre, i_pre, priority_pre, l_post, i_post, priority_post.
 Scale L/I to 1-10. Priority: Low / Med / High.
-INPUT: {source_payload}
+INPUT: {json.dumps(data[:30], indent=2)}
 Return JSON array."""
 
     raw     = call_claude(client, SYSTEM, USER, max_tokens=4096)
@@ -977,11 +915,11 @@ def main():
 
     input_files = sorted(
         f for f in input_dir.glob("*")
-        if f.suffix.lower() in (".xlsx", ".xls", ".pdf", ".docx")
+        if f.suffix.lower() in (".xlsx", ".xls", ".pdf")
     )
 
     if not input_files:
-        print("No .xlsx / .xls / .pdf / .docx files found in ./input")
+        print("No .xlsx / .xls / .pdf files found in ./input")
         return
 
     print(f"Found {len(input_files)} file(s) to process\n")
