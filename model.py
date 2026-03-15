@@ -33,8 +33,8 @@ load_dotenv()
 # ──────────────────────────────────────────────────────────────
 # Solid hex RGB — always renders as the correct dusty-rose/pink
 # regardless of the active Excel document theme.
-HEADER_FILL  = PatternFill(fill_type="solid", fgColor="FFE4AFAF")
-HEADER_FONT  = Font(bold=True, name="Aptos Narrow", size=11)
+HEADER_FILL  = PatternFill(fill_type="solid", fgColor="FFF0CBE0")  # Lighter pink/mauve
+HEADER_FONT  = Font(bold=True, name="Calibri", size=11)
 HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 DATA_ALIGN   = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
@@ -89,12 +89,12 @@ OUTPUT_REQUIREMENTS = [
 # ──────────────────────────────────────────────────────────────
 #  COLUMN WIDTHS
 # ──────────────────────────────────────────────────────────────
-_W_PRE_POST = {1:12.3,2:12.3,3:42.7,4:18.0,5:29.6,6:23.1,
-               7:16.4,8:16.4,9:16.4,10:63.6,11:17.1,12:17.1,13:17.1}
-_W_SINGLE   = {1:11.43,2:10.43,3:55.71,4:38.57,5:16.71,
-               6:14.86,7:13.86,8:16.14,9:26.43,10:55.71,11:57.29}
-_W_IT       = {1:11.43,2:10.43,3:55.71,4:38.57,5:16.71,
-               6:26.43,7:14.86,8:13.86,9:16.14,10:57.29}
+_W_PRE_POST = {1:11.0, 2:8.5, 3:60.0, 4:18.0, 5:29.6, 6:23.1,
+               7:16.4, 8:16.4, 9:16.4, 10:63.6, 11:17.1, 12:17.1, 13:17.1}
+_W_SINGLE   = {1:11.0, 2:8.5, 3:70.0, 4:38.57, 5:16.71,
+               6:14.86, 7:13.86, 8:16.14, 9:26.43, 10:55.71, 11:57.29}
+_W_IT       = {1:11.0, 2:8.5, 3:70.0, 4:38.57, 5:16.71,
+               6:26.43, 7:14.86, 8:13.86, 9:16.14, 10:57.29}
 
 # ──────────────────────────────────────────────────────────────
 #  HELPERS
@@ -204,7 +204,8 @@ def _write_sheet(ws, headers, rows, col_widths,
         cell.font      = HEADER_FONT
         cell.alignment = HEADER_ALIGN
         cell.border    = THIN_BORDER
-    ws.row_dimensions[1].height = 72.75
+    # Remove fixed header height to allow auto-fitting
+    # ws.row_dimensions[1].height = 35.0
 
     data_start = 2
     if row2_labels:
@@ -215,10 +216,12 @@ def _write_sheet(ws, headers, rows, col_widths,
 
     for r_off, row in enumerate(rows):
         r_idx = data_start + r_off
+        # CRITICAL: Set height to None for auto-fitting
+        ws.row_dimensions[r_idx].height = None
         for c_idx, val in enumerate(row, 1):
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.border    = THIN_BORDER
-            cell.alignment = DATA_ALIGN
+            cell.alignment = HEADER_ALIGN  # Use center alignment for all cells
             if isinstance(val, datetime):
                 cell.number_format = FMT_DATE
             elif isinstance(val, int):
@@ -685,21 +688,34 @@ Return JSON array: idx, stage, category, owner, l, i"""
 #  FILE 5 — Fenland DC Corporate Risk Register (blind test, PDF source)
 #
 #  The input is a .pdf — openpyxl cannot read it directly.
-#  Strategy: extract text from the PDF using pdfminer.six
-#  (whichever is installed), then pass the raw text to Claude which
+#  Strategy: extract text from the PDF using pdfplumber,
+#  then pass the raw text to Claude which
 #  reads the table structure and returns standardised JSON.
 #  Also handles Excel input if the user has pre-converted the PDF.
 # ──────────────────────────────────────────────────────────────
 
 def _extract_pdf_text(path: str) -> str:
-    """Extract raw text from a PDF using pdfminer.six (required dependency)."""
+    """Extract raw text from a PDF using pdfplumber (required dependency)."""
     try:
-        from pdfminer.high_level import extract_text
-        return extract_text(path)
+        import pdfplumber
+        with pdfplumber.open(path) as pdf:
+            pages = []
+            for page in pdf.pages:
+                # Extract tables first (preserves row structure)
+                for table in page.extract_tables():
+                    for row in table:
+                        line = "\t".join(cell or "" for cell in row)
+                        if line.strip():
+                            pages.append(line)
+                # Then any remaining text not captured in tables
+                text = page.extract_text()
+                if text:
+                    pages.append(text)
+        return "\n".join(pages)
     except ImportError:
         raise ImportError(
-            "pdfminer.six is required to process PDF files.\n"
-            "Install it with:  pip install pdfminer.six"
+            "pdfplumber is required to process PDF files.\n"
+            "Install it with:  pip install pdfplumber"
         )
 
 
@@ -724,7 +740,10 @@ def _extract_docx_text(path: str) -> str:
                     parts.append(line)
         return "\n".join(parts)
     except ImportError:
-        return ""
+        raise ImportError(
+            "python-docx is required to process Word documents.\n"
+            "Install it with:  pip install python-docx"
+        )
 
 
 def process_file5(path: str, client, output_path: str):
@@ -756,12 +775,11 @@ def process_file5(path: str, client, output_path: str):
         raw_text = _extract_pdf_text(path)
         if not raw_text.strip():
             print("  ⚠ Could not extract text from PDF.")
-            print("  Tip: install pdfminer.six  →  pip install pdfminer.six")
+            print("  Tip: install pdfplumber  →  pip install pdfplumber")
             print("  Then rerun, or convert the PDF to Excel first.")
             return
         source_text = raw_text[:12000]   # stay within token limits
         source_type = "raw text extracted from a PDF"
-        print(f"  Extracted {len(raw_text):,} chars of text")
 
     # ── Word document input ───────────────────────────────────
     elif suffix == ".docx":
@@ -770,11 +788,9 @@ def process_file5(path: str, client, output_path: str):
         if not raw_text.strip():
             print("  ⚠ Could not extract text from .docx.")
             print("  Tip: install python-docx  →  pip install python-docx")
-            print("  Then rerun, or convert the document to Excel first.")
             return
         source_text = raw_text[:12000]
         source_type = "raw text extracted from a Word document"
-        print(f"  Extracted {len(raw_text):,} chars of text")
 
     else:
         print(f"  ⚠ Unsupported format '{suffix}' for File 5.")
@@ -862,8 +878,8 @@ def process_generic(path: str, client, output_path: str):
     elif suffix == ".pdf":
         raw_text = _extract_pdf_text(path)
         if not raw_text.strip():
-            print("  ⚠ Could not extract text from PDF — is pdfminer.six installed?")
-            print("  pip install pdfminer.six")
+            print("  ⚠ Could not extract text from PDF — is pdfplumber installed?")
+            print("  pip install pdfplumber")
             return
         source_payload = raw_text[:10000]
 
