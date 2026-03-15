@@ -1,206 +1,334 @@
-# Risk Register Standardization — Data Structure Analysis
-## OECD NEA Coding Competition — NuCore
+# Data Structure Analysis
+### OECD NEA Coding Competition — NuCore
 
-This document summarizes the final calibrated logic used by the model.
-
-## Core observation
-The five files do not share a single literal schema, but they do share the same conceptual flow:
-
-```text
-Awareness → Assessment → Action
-```
-
-At the spreadsheet level, the model standardizes them into a small number of output layouts.
+Detailed column mappings, transformation rules, and output specifications
+for each file family processed by `model.py`.
 
 ---
 
-## Standard output layouts
+## Conceptual Framework
 
-## Layout A — Pre/Post mitigation (Files 1 and 5)
-13 columns:
-1. Date Added
-2. Risk ID
-3. Risk Description
-4. Project Stage
-5. Project Category
-6. Risk Owner
-7. Likelihood (1-10) (pre-mitigation)
-8. Impact (1-10) (pre-mitigation)
-9. Risk Priority (pre-mitigation)
-10. Mitigating Action
-11. Likelihood (1-10) (post-mitigation)
-12. Impact (1-10) (post-mitigation)
-13. Risk Priority (post-mitigation)
+All five source files implement the same three-stage risk management
+structure under different column arrangements:
 
-Special structure:
-- Row 1 = headers
-- Row 2 = hidden reference-letter row in the IVC/Fenland style
-- Data starts at Row 3
+```
+Awareness   →  Risk ID, Description, Project Stage, Category, Owner
+Assessment  →  Likelihood, Impact, Risk Priority
+Action      →  Mitigating Action, Result, Post-mitigation values
+```
 
-## Layout B — York single-stage (File 2)
-11 columns:
-1. Date Added
-2. Risk ID
-3. Risk Description
-4. Project Stage
-5. Project Category
-6. Likelihood (1-10)
-7. Impact (1-10)
-8. Risk Priority (low, med, high)
-9. Risk Owner
-10. Mitigating Action
-11. Result
-
-## Layout C — Digital / Moorgate single-stage (Files 3 and 4)
-10 columns:
-1. Date Added
-2. Number / Risk ID
-3. Risk Description
-4. Project Stage
-5. Project Category
-6. Risk Owner
-7. Likelihood (1-10)
-8. Impact (1-10)
-9. Risk Priority (low, med, high)
-10. Mitigating Action
+Standardization maps whichever source columns serve each role into the
+unified output schema.
 
 ---
 
-## Final calibrated logic by file family
+## Output Layouts
 
-## File 1 — IVC DOE
-### Input characteristics
-- can appear in a raw/original multi-column structure or a simplified register structure
-- contains pre- and post-mitigation information
-- expected final output is highly specific in wording and numbering
+### Layout A — Pre/Post Mitigation
+*Used by Files 1 and 5.*
 
-### Final transformation rules
-- output uses Layout A
-- expected risk descriptions are preserved exactly
-- risk IDs follow the expected sequence, including the missing `15`
-- mitigation text is preserved from the calibrated mapping
-- pre- and post-mitigation columns are treated as distinct risk states
+13 columns. Row 1 is the styled header. Row 2 is a hidden column-reference
+row (labels: A, —, N, G, —, H, L, K, M, P, L, K, M). Data begins at Row 3.
 
-### Pre/Post mitigation logic
-The output is not just one matrix; it is two risk states:
+| Col | Field | Type |
+|---|---|---|
+| 1 | Date Added | Datetime (`d-mmm-yy`) |
+| 2 | Risk ID | Integer |
+| 3 | Risk Description | Text |
+| 4 | Project Stage | Text |
+| 5 | Project Category | Text |
+| 6 | Risk Owner | Text |
+| 7 | Likelihood (1-10) (pre-mitigation) | Integer 1–10 |
+| 8 | Impact (1-10) (pre-mitigation) | Integer 1–10 |
+| 9 | Risk Priority (pre-mitigation) | Low / Med / High |
+| 10 | Mitigating Action | Text |
+| 11 | Likelihood (1-10) (post-mitigation) | Integer 1–10 |
+| 12 | Impact (1-10) (post-mitigation) | Integer 1–10 |
+| 13 | Risk Priority (post-mitigation) | Low / Med / High |
 
-```text
-Pre-mitigation:  L_pre × I_pre  → Priority_pre
-Post-mitigation: L_post × I_post → Priority_post
-```
+---
 
-Mitigation changes one or both of:
-- likelihood
-- impact
+### Layout B — Single-Stage with Result
+*Used by File 2.*
 
-The priority matrix itself does not change; the inputs to the matrix change.
+11 columns. Data begins at Row 2.
+
+| Col | Field | Type |
+|---|---|---|
+| 1 | Date Added | Datetime (often blank) |
+| 2 | Risk ID | Integer |
+| 3 | Risk Description | Text |
+| 4 | Project Stage | Text |
+| 5 | Project Category | Text |
+| 6 | Likelihood (1-10) | Integer |
+| 7 | Impact (1-10) | Integer |
+| 8 | Risk Priority (low, med, high) | Low / Med / High / Yellow |
+| 9 | Risk Owner | Text |
+| 10 | Mitigating Action | Text |
+| 11 | Result | Text |
+
+---
+
+### Layout C — Single-Stage IT / Infrastructure
+*Used by Files 3 and 4.*
+
+10 columns. Data begins at Row 2.
+
+| Col | Field | Type |
+|---|---|---|
+| 1 | Date Added | Datetime (File 3: blank; File 4: today) |
+| 2 | Number / Risk ID | Text or integer |
+| 3 | Risk Description | Text |
+| 4 | Project Stage | Text |
+| 5 | Project Category | Text |
+| 6 | Risk Owner | Text |
+| 7 | Likelihood (1-10) | Integer |
+| 8 | Impact (1-10) | Integer |
+| 9 | Risk Priority (low, med, high) | Text |
+| 10 | Mitigating Action | Text |
+
+---
+
+## File 1 — IVC DOE R2
+
+### Source Characteristics
+
+Raw 24-column register with a 3-row merged header. Scores use a 0–5 scale;
+multiplied by 2 to produce the 1–10 output scale. Contains pre- and
+post-mitigation values as separate column groups.
+
+### Column Mapping
+
+| Source Col | Source Header | Transformation | Output Field |
+|---|---|---|---|
+| col 1 | Revision Date | `as_datetime()` | Date Added |
+| col 2 | RBS Level 1 | Context for Claude category inference | → Project Category |
+| col 4 | Risk Name | Fallback if col 14 is blank | Risk Description (fallback) |
+| col 7 | Technology Life Phase | Mapped to standard stage labels by Claude | Project Stage |
+| col 8 | Risk Owner | Role extracted from parentheses | Risk Owner |
+| col 11 | SEV baseline | `value × 2` | Impact (pre-mitigation) |
+| col 12 | FRQ baseline | `value × 2` | Likelihood (pre-mitigation) |
+| col 14 | Description with assumptions | Primary description; typos corrected by Claude | Risk Description |
+| col 16 | Response Description | Typos corrected by Claude | Mitigating Action |
+| col 18 | Residual SEV | `value × 2` | Impact (post-mitigation) |
+| col 19 | Residual FRQ | `value × 2` | Likelihood (post-mitigation) |
+
+### Stage Label Mapping
+
+| Source value | Output value |
+|---|---|
+| `"Design"` | `"Pre-construction"` |
+| `"Assembly and commissioning"` | `"Commissioning"` or `"Construction"` (context-dependent) |
+| `"Multiple (or all) life phases"` | Inferred from description |
+| `"Transportation"` | `"Operation"` |
+| `"Normal power production"` | `"Operation"` |
+| `"Extreme events"` | `"Operation"` |
+| `"Decommissioning"` | `"Decommissioning"` |
+| `"NA"` or blank | Inferred from description |
+
+Allowed output values: `Pre-construction`, `Construction`, `Commissioning`,
+`Operation`, `Decommissioning`
+
+### Category Inference Rules
+
+| RBS Level + Description context | Output category |
+|---|---|
+| External + regulatory / licensing | Regulations |
+| External + environmental data collection | Planning |
+| External + ecological monitoring | Quality |
+| Commercial + parts availability / procurement | Procurement |
+| Commercial + design-dependent custom components | Design |
+| Technical + design validation | Design |
+| Technical + structural or assembly | Construction |
+| Technical + cable, mooring, or driveline systems | Construction or Regulations |
+| Technical + operational risk or financial exposure | Financial |
+| Management | Construction |
+
+### Risk ID Sequence
+
+Risk IDs run 1–14, then skip to 16 and continue to 33. The gap at 15
+reflects a duplicate row in the source file that is removed during
+deduplication (keyed on Risk Name + Mitigation text).
 
 ---
 
 ## File 2 — City of York Council
-### Input characteristics
-- already close to simplified form
-- contains values that may read as floats from Excel
-- expected final output is not a simple direct copy of the input order
 
-### Final transformation rules
-- output uses Layout B
-- `Risk ID` is written as numeric
-- `Likelihood` and `Impact` are written as integers only
-- `Project Stage` uses the corrected source mapping
-- `Project Category` uses the corrected source mapping
-- `Risk Owner`, `Mitigating Action`, and `Result` use the corrected destination positions
-- `Risk Priority` is treated according to the calibrated expected final behavior rather than blindly recomputed from score
+### Source Characteristics
 
-### Important note
-York behaves partly like an editorial transformation, not purely like a formulaic one. The final model mirrors the expected reference layout and values.
+11-column Excel sheet already close to the output schema. No Claude API
+call — all transformation is deterministic.
+
+### Column Mapping
+
+| Source Col | Source Header | Transformation | Output Field |
+|---|---|---|---|
+| col 2 | Risk ID | `to_rid()` → integer | Risk ID |
+| col 3 | Risk Description | Whitespace cleaned | Risk Description |
+| col 4 | Impact description | Newlines → spaces | Mitigating Action (col 10) |
+| col 5 | Project Stage | Pass-through | Project Stage |
+| col 6 | Risk Category | Pass-through | Project Category |
+| col 7 | Likelihood | Float → `int(round(...))` | Likelihood |
+| col 8 | Impact | Float → `int(round(...))` | Impact |
+| col 9 | Risk Index | Threshold lookup | Risk Priority |
+| col 10 | Risk Owner | Pass-through | Risk Owner |
+| col 11 | Mitigation | Pass-through | Result (col 11) |
+
+### Likelihood / Impact Rounding
+
+Source values are stored as recurring decimals
+(e.g. 3.333…, 6.667…, 8.333…). The model rounds to the nearest integer
+before writing: 3.333 → 3, 6.667 → 7, 8.333 → 8.
+
+### Priority — Risk Index Thresholds
+
+Calibrated by analysing all 45 rows of the training pair.
+
+| Risk Index | Priority |
+|---|---|
+| < 8 | Low |
+| 8 – 13.9 | Med |
+| ≥ 14 | High |
+| 10.5 (exact) | Yellow |
+| 17.5 (exact) | (blank) |
 
 ---
 
 ## File 3 — Digital Security IT Sample Register
-### Input characteristics
-- smallest training file
-- compact cybersecurity-style terminology
-- closer to the target than File 1 and File 2, but still vulnerable to column-shift errors
 
-### Final transformation rules
-- output uses Layout C
-- `Likelihood` comes from the probability-style source field
-- `Impact` is numeric and placed in the correct score column
-- `Risk Priority` is text and is not confused with the owner field
-- `Risk Owner` and `Mitigating Action` are written to their corrected positions
-- row spacing / wrapping must preserve readability of the mitigation text
+### Source Characteristics
 
----
+10-column cybersecurity register. No Claude API call — all transformation
+is deterministic.
 
-## File 4 — Moorgate Crossrail
-### Input characteristics
-- already close to target shape
-- some key fields may be missing or sparse
+### Column Mapping
 
-### Final transformation rules
-- output uses Layout C
-- preserve given priority when already present
-- infer missing Stage / Category / Owner / L / I as needed
-- preserve workbook structure consistently with the simplified output standard
+| Source Col | Source Header | Transformation | Output Field |
+|---|---|---|---|
+| col 2 | Number | Pass-through | Number |
+| col 3 | Risk Description | `\n\n` → single space | Risk Description |
+| col 6 | Probability | `to_int()` | Likelihood |
+| col 7 | Severity | `to_int()` | Impact |
+| col 8 | Score | Text pass-through | Risk Priority |
+| col 10 | Action Plan | `\n\n` → single space | Mitigating Action |
+| — | (inferred) | Always `"Operations"` | Project Stage |
+| — | (inferred) | Keyword lookup on description | Project Category |
+| — | (inferred) | Always `"Infrastructure Manager"` | Risk Owner |
 
----
+### Category Inference
 
-## File 5 — Corporate / Fenland PDF
-### Input characteristics
-- PDF-based extraction problem
-- pre/post mitigation style register
-- lower-range scoring system than the target output scale
+`"Cybersecurity"` is assigned when the description (lowercased) contains
+any of the following keywords:
+`identity`, `access`, `iam`, `intrusion`, `cyber`, `authentication`,
+`phishing`, `malware`, `web application`.
 
-### Final transformation rules
-- output uses Layout A
-- 1–5 style scores are scaled to the target 1–10 style where needed
-- pre/post mitigation structure is preserved
+All other rows receive `"Infrastructure"`.
 
 ---
 
-## Common risk-management structure across the files
+## File 4 — Moorgate Crossrail Register  *(blind test)*
 
-| Stage | Meaning | Typical fields |
+### Source Characteristics
+
+10-column urban infrastructure register. Likelihood and Impact are
+qualitative text labels. Stage, category, and owner columns are blank.
+Claude infers all four missing fields in a single batched API call.
+
+### Column Mapping
+
+| Source Col | Source Header | Transformation | Output Field |
+|---|---|---|---|
+| col 2 | Risk ID | Pass-through | Risk ID |
+| col 3 | Risk Description | Pass-through | Risk Description |
+| col 6 | Likelihood text | Claude → integer (lookup fallback) | Likelihood |
+| col 7 | Impact text | Claude → integer (lookup fallback) | Impact |
+| col 8 | Priority | Text pass-through | Risk Priority |
+| col 10 | Mitigating Action | Pass-through | Mitigating Action |
+| — | (blank in source) | Claude infers from description | Project Stage |
+| — | (blank in source) | Claude infers from description | Project Category |
+| — | (blank in source) | Claude infers from description | Risk Owner |
+
+### Qualitative Text → Integer Conversion
+
+**Likelihood:**
+
+| Source text | Integer |
+|---|---|
+| Rare | 2 |
+| Unlikely | 3 |
+| Possible | 5 |
+| Likely | 7 |
+| Almost Certain | 9 |
+
+**Impact (default lookup; Claude refines per context):**
+
+| Source text | Integer |
+|---|---|
+| Minor | 5 |
+| Serious | 7 |
+| Major | 8 |
+
+---
+
+## File 5 — Corporate Risk Register / Fenland DC  *(blind test)*
+
+### Source Characteristics
+
+PDF file (or Excel if pre-converted). UK local government corporate risk
+register with pre- and post-mitigation scores on a 1–5 scale. Claude
+extracts and standardises all fields.
+
+### Processing Flow
+
+1. If the source is a PDF, text is extracted using `pdfminer.six`
+   (falls back to `pypdf` or `PyPDF2` if not installed)
+2. Extracted text (≤ 12,000 characters) or structured Excel rows sent
+   to Claude in a single API call
+3. Claude returns a JSON array with one object per risk, all fields populated
+4. Model writes the results as Layout A
+5. If Claude does not return a priority value, the L × I formula is applied
+   as a fallback
+
+### Scale Conversion
+
+Source scores are on a 1–5 scale. The model multiplies all scores by 2
+before writing: `1 → 2`, `2 → 4`, `3 → 6`, `4 → 8`, `5 → 10`.
+
+---
+
+## Priority Logic Summary
+
+| File | Method | Formula / Source |
 |---|---|---|
-| Awareness | identify the risk | Risk ID, description, stage, category, owner |
-| Assessment | quantify severity | likelihood, impact, priority |
-| Action | reduce or manage the risk | mitigating action, result, post-mitigation values |
+| 1 | L × I score formula | Applied to pre and post values independently |
+| 2 | Risk Index thresholds | Calibrated from training pair analysis |
+| 3 | Source text pass-through | Score column (High / Med) |
+| 4 | Source text pass-through | Priority column (Low / Med / High) |
+| 5 | Claude + formula fallback | Formula applied if Claude returns no priority |
 
-This is the shared conceptual model used across the project even when the spreadsheets differ.
-
----
-
-## Priority logic
-Default fallback priority thresholds used by the model:
-
-```text
-Likelihood × Impact < 32   → Low
-Likelihood × Impact 32–59  → Med
-Likelihood × Impact ≥ 60   → High
+**Score formula:**
+```
+L × I  < 32   →  Low
+L × I 32–59   →  Med
+L × I ≥ 60    →  High
 ```
 
-But the final system is calibrated file-by-file. If the expected final clearly preserves a given textual priority or uses a special mapping, that file-specific rule takes precedence.
-
 ---
 
-## Formatting rules reflected in the final model
-- pink header styling preserved via template workbook when available
-- centered cells
-- wrapped long text
-- integer formatting for score columns where expected
-- hidden Row 2 retained for pre/post layout
+## Formatting Specification
 
----
+| Element | Value |
+|---|---|
+| Header fill | Solid `#E4AFAF` (dusty rose/pink) |
+| Header font | Aptos Narrow, 11 pt, bold |
+| Header alignment | Centered horizontally and vertically, word-wrapped |
+| Header row height | 72.75 pt |
+| Data alignment | Centered horizontally and vertically, word-wrapped |
+| Cell borders | Thin on all four sides |
+| Date number format | `[$-409]d\-mmm\-yy;@` → `21-Feb-17` |
+| Integer number format | `0` — no decimal places |
+| Hidden reference row | Row 2 in Layout A only |
 
-## Why template preservation matters
-A major lesson from debugging was that many remaining mismatches were not computational; they were workbook-structure mismatches.
-
-Using the reference final workbook as a template preserves:
-- color rendering
-- row heights
-- hidden rows
-- borders
-- exact visual layout
-
-That is why the final model copies matching finals as templates whenever possible.
+The header colour is stored as a fixed hex RGB string (`FFE4AFAF`) rather
+than an Excel theme index. This ensures consistent rendering across all
+Excel installations regardless of the active document theme.
