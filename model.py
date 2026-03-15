@@ -33,8 +33,8 @@ load_dotenv()
 # ──────────────────────────────────────────────────────────────
 # Solid hex RGB — always renders as the correct dusty-rose/pink
 # regardless of the active Excel document theme.
-HEADER_FILL  = PatternFill(fill_type="solid", fgColor="FFE4AFAF")
-HEADER_FONT  = Font(bold=True, name="Aptos Narrow", size=11)
+HEADER_FILL  = PatternFill(fill_type="solid", fgColor="FFF0CBE0")  # Lighter pink/mauve
+HEADER_FONT  = Font(bold=True, name="Calibri", size=11)
 HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 DATA_ALIGN   = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
@@ -89,12 +89,12 @@ OUTPUT_REQUIREMENTS = [
 # ──────────────────────────────────────────────────────────────
 #  COLUMN WIDTHS
 # ──────────────────────────────────────────────────────────────
-_W_PRE_POST = {1:12.3,2:12.3,3:42.7,4:18.0,5:29.6,6:23.1,
-               7:16.4,8:16.4,9:16.4,10:63.6,11:17.1,12:17.1,13:17.1}
-_W_SINGLE   = {1:11.43,2:10.43,3:55.71,4:38.57,5:16.71,
-               6:14.86,7:13.86,8:16.14,9:26.43,10:55.71,11:57.29}
-_W_IT       = {1:11.43,2:10.43,3:55.71,4:38.57,5:16.71,
-               6:26.43,7:14.86,8:13.86,9:16.14,10:57.29}
+_W_PRE_POST = {1:11.0, 2:8.5, 3:60.0, 4:18.0, 5:29.6, 6:23.1,
+               7:16.4, 8:16.4, 9:16.4, 10:63.6, 11:17.1, 12:17.1, 13:17.1}
+_W_SINGLE   = {1:11.0, 2:8.5, 3:70.0, 4:38.57, 5:16.71,
+               6:14.86, 7:13.86, 8:16.14, 9:26.43, 10:55.71, 11:57.29}
+_W_IT       = {1:11.0, 2:8.5, 3:70.0, 4:38.57, 5:16.71,
+               6:26.43, 7:14.86, 8:13.86, 9:16.14, 10:57.29}
 
 # ──────────────────────────────────────────────────────────────
 #  HELPERS
@@ -204,7 +204,8 @@ def _write_sheet(ws, headers, rows, col_widths,
         cell.font      = HEADER_FONT
         cell.alignment = HEADER_ALIGN
         cell.border    = THIN_BORDER
-    ws.row_dimensions[1].height = 72.75
+    # Remove fixed header height to allow auto-fitting
+    # ws.row_dimensions[1].height = 35.0
 
     data_start = 2
     if row2_labels:
@@ -215,10 +216,12 @@ def _write_sheet(ws, headers, rows, col_widths,
 
     for r_off, row in enumerate(rows):
         r_idx = data_start + r_off
+        # CRITICAL: Set height to None for auto-fitting
+        ws.row_dimensions[r_idx].height = None
         for c_idx, val in enumerate(row, 1):
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.border    = THIN_BORDER
-            cell.alignment = DATA_ALIGN
+            cell.alignment = HEADER_ALIGN  # Use center alignment for all cells
             if isinstance(val, datetime):
                 cell.number_format = FMT_DATE
             elif isinstance(val, int):
