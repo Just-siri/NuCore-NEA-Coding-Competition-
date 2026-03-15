@@ -78,7 +78,45 @@ Claude to infer the appropriate output structure automatically.
 
 **Python 3.10 or later**
 
+### Option A — From ZIP (recommended)
+
+If you received the project as a `.zip` file, extract it and activate the
+bundled virtual environment — no separate install step needed.
+
+**Windows (PowerShell)**
+```powershell
+# Extract, then navigate into the project folder
+cd NuCore-master
+
+# Activate the existing virtual environment
+.venv\Scripts\Activate.ps1
+```
+
+> If PowerShell blocks the activation script, run this once first:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
+
+**Mac / Linux**
 ```bash
+cd NuCore-master
+source .venv/bin/activate
+```
+
+### Option B — Fresh install
+
+If setting up from scratch (e.g. after cloning from GitHub):
+
+```bash
+# Create and activate a virtual environment
+python -m venv .venv
+
+# Mac / Linux
+source .venv/bin/activate
+
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+
 # Install required packages
 pip install -r requirements.txt
 
@@ -89,8 +127,11 @@ pip install pdfminer.six
 The model also accepts `pypdf` or `PyPDF2` if either is already installed
 and selects whichever is available automatically.
 
-```bash
-# Set API key — create a .env file in the project root and add:
+### API Key
+
+Create a `.env` file in the project root and add:
+
+```
 ANTHROPIC_API_KEY=your-api-key-here
 ```
 
