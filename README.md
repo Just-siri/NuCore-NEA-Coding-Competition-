@@ -72,6 +72,9 @@ Files are routed automatically by keyword matching on the filename.
 Any unrecognised file is handled by a generic fallback processor that uses
 Claude to infer the appropriate output structure automatically.
 
+`.docx` (Word document) inputs are supported alongside PDF and Excel,
+processed through the same text-extraction and Claude standardisation pipeline.
+
 ---
 
 ## Installation
@@ -119,13 +122,7 @@ source .venv/bin/activate
 
 # Install required packages
 pip install -r requirements.txt
-
-# For PDF input support (File 5), also install:
-pip install pdfminer.six
 ```
-
-The model also accepts `pypdf` or `PyPDF2` if either is already installed
-and selects whichever is available automatically.
 
 ### API Key
 
@@ -206,7 +203,7 @@ The test script:
 
 - File type and family are detected from the filename
 - Excel files are read with `openpyxl`; PDF files have text extracted using
-  `pdfminer.six` (with `pypdf` and `PyPDF2` as automatic fallbacks)
+  `pdfminer.six`
 - All source columns are read dynamically — no column positions are assumed
 
 ### 2. Claude API Enhancement

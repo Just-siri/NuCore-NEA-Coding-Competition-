@@ -33,8 +33,8 @@ load_dotenv()
 # ──────────────────────────────────────────────────────────────
 # Solid hex RGB — always renders as the correct dusty-rose/pink
 # regardless of the active Excel document theme.
-HEADER_FILL  = PatternFill(fill_type="solid", fgColor="FFF0CBE0")  # Lighter pink/mauve
-HEADER_FONT  = Font(bold=True, name="Calibri", size=11)
+HEADER_FILL  = PatternFill(fill_type="solid", fgColor="FFE4AFAF")
+HEADER_FONT  = Font(bold=True, name="Aptos Narrow", size=11)
 HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 DATA_ALIGN   = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
@@ -89,12 +89,12 @@ OUTPUT_REQUIREMENTS = [
 # ──────────────────────────────────────────────────────────────
 #  COLUMN WIDTHS
 # ──────────────────────────────────────────────────────────────
-_W_PRE_POST = {1:11.0, 2:8.5, 3:60.0, 4:18.0, 5:29.6, 6:23.1,
-               7:16.4, 8:16.4, 9:16.4, 10:63.6, 11:17.1, 12:17.1, 13:17.1}
-_W_SINGLE   = {1:11.0, 2:8.5, 3:70.0, 4:38.57, 5:16.71,
-               6:14.86, 7:13.86, 8:16.14, 9:26.43, 10:55.71, 11:57.29}
-_W_IT       = {1:11.0, 2:8.5, 3:70.0, 4:38.57, 5:16.71,
-               6:26.43, 7:14.86, 8:13.86, 9:16.14, 10:57.29}
+_W_PRE_POST = {1:12.3,2:12.3,3:42.7,4:18.0,5:29.6,6:23.1,
+               7:16.4,8:16.4,9:16.4,10:63.6,11:17.1,12:17.1,13:17.1}
+_W_SINGLE   = {1:11.43,2:10.43,3:55.71,4:38.57,5:16.71,
+               6:14.86,7:13.86,8:16.14,9:26.43,10:55.71,11:57.29}
+_W_IT       = {1:11.43,2:10.43,3:55.71,4:38.57,5:16.71,
+               6:26.43,7:14.86,8:13.86,9:16.14,10:57.29}
 
 # ──────────────────────────────────────────────────────────────
 #  HELPERS
@@ -204,8 +204,7 @@ def _write_sheet(ws, headers, rows, col_widths,
         cell.font      = HEADER_FONT
         cell.alignment = HEADER_ALIGN
         cell.border    = THIN_BORDER
-    # Remove fixed header height to allow auto-fitting
-    # ws.row_dimensions[1].height = 35.0
+    ws.row_dimensions[1].height = 72.75
 
     data_start = 2
     if row2_labels:
@@ -216,12 +215,10 @@ def _write_sheet(ws, headers, rows, col_widths,
 
     for r_off, row in enumerate(rows):
         r_idx = data_start + r_off
-        # CRITICAL: Set height to None for auto-fitting
-        ws.row_dimensions[r_idx].height = None
         for c_idx, val in enumerate(row, 1):
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.border    = THIN_BORDER
-            cell.alignment = HEADER_ALIGN  # Use center alignment for all cells
+            cell.alignment = DATA_ALIGN
             if isinstance(val, datetime):
                 cell.number_format = FMT_DATE
             elif isinstance(val, int):
@@ -688,33 +685,46 @@ Return JSON array: idx, stage, category, owner, l, i"""
 #  FILE 5 — Fenland DC Corporate Risk Register (blind test, PDF source)
 #
 #  The input is a .pdf — openpyxl cannot read it directly.
-#  Strategy: extract text from the PDF using pdfminer/pypdf/PyPDF2
+#  Strategy: extract text from the PDF using pdfminer.six
 #  (whichever is installed), then pass the raw text to Claude which
 #  reads the table structure and returns standardised JSON.
 #  Also handles Excel input if the user has pre-converted the PDF.
 # ──────────────────────────────────────────────────────────────
 
 def _extract_pdf_text(path: str) -> str:
-    """Extract raw text from a PDF using pdfminer, pypdf, or PyPDF2."""
+    """Extract raw text from a PDF using pdfminer.six (required dependency)."""
     try:
         from pdfminer.high_level import extract_text
         return extract_text(path)
     except ImportError:
-        pass
+        raise ImportError(
+            "pdfminer.six is required to process PDF files.\n"
+            "Install it with:  pip install pdfminer.six"
+        )
+
+
+def _extract_docx_text(path: str) -> str:
+    """Extract raw text from a Word document (.docx) using python-docx.
+    Body paragraphs and table cells are both captured, preserving the
+    tabular structure commonly used for risk registers in Word.
+    """
     try:
-        import pypdf
-        reader = pypdf.PdfReader(path)
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
+        from docx import Document
+        doc   = Document(path)
+        parts = []
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if text:
+                parts.append(text)
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [c.text.strip() for c in row.cells]
+                line  = "\t".join(cells)
+                if line.strip():
+                    parts.append(line)
+        return "\n".join(parts)
     except ImportError:
-        pass
-    try:
-        import PyPDF2
-        with open(path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
-    except ImportError:
-        pass
-    return ""
+        return ""
 
 
 def process_file5(path: str, client, output_path: str):
@@ -751,6 +761,19 @@ def process_file5(path: str, client, output_path: str):
             return
         source_text = raw_text[:12000]   # stay within token limits
         source_type = "raw text extracted from a PDF"
+        print(f"  Extracted {len(raw_text):,} chars of text")
+
+    # ── Word document input ───────────────────────────────────
+    elif suffix == ".docx":
+        print("  Detected Word document — extracting text…")
+        raw_text = _extract_docx_text(path)
+        if not raw_text.strip():
+            print("  ⚠ Could not extract text from .docx.")
+            print("  Tip: install python-docx  →  pip install python-docx")
+            print("  Then rerun, or convert the document to Excel first.")
+            return
+        source_text = raw_text[:12000]
+        source_type = "raw text extracted from a Word document"
         print(f"  Extracted {len(raw_text):,} chars of text")
 
     else:
@@ -814,23 +837,46 @@ Return a JSON array — one object per risk — with all fields above."""
 
 def process_generic(path: str, client, output_path: str):
     print("  Using generic processing…")
-    wb   = openpyxl.load_workbook(path)
-    ws   = get_data_sheet(wb)
-    hdrs = [clean(ws.cell(1, c).value) for c in range(1, ws.max_column + 1)]
+    suffix = Path(path).suffix.lower()
 
-    data = []
-    for r in range(2, ws.max_row + 1):
-        row = {hdrs[c]: clean(ws.cell(r, c + 1).value)
-               for c in range(len(hdrs)) if ws.cell(r, c + 1).value is not None}
-        if row:
-            data.append({"idx": len(data), **row})
+    if suffix in (".xlsx", ".xlsm", ".xls", ".xltx", ".xltm"):
+        wb   = openpyxl.load_workbook(path)
+        ws   = get_data_sheet(wb)
+        hdrs = [clean(ws.cell(1, c).value) for c in range(1, ws.max_column + 1)]
+        data = []
+        for r in range(2, ws.max_row + 1):
+            row = {hdrs[c]: clean(ws.cell(r, c + 1).value)
+                   for c in range(len(hdrs)) if ws.cell(r, c + 1).value is not None}
+            if row:
+                data.append({"idx": len(data), **row})
+        source_payload = json.dumps(data[:30], indent=2)
+
+    elif suffix == ".docx":
+        raw_text = _extract_docx_text(path)
+        if not raw_text.strip():
+            print("  ⚠ Could not extract text from .docx — is python-docx installed?")
+            print("  pip install python-docx")
+            return
+        source_payload = raw_text[:10000]
+
+    elif suffix == ".pdf":
+        raw_text = _extract_pdf_text(path)
+        if not raw_text.strip():
+            print("  ⚠ Could not extract text from PDF — is pdfminer.six installed?")
+            print("  pip install pdfminer.six")
+            return
+        source_payload = raw_text[:10000]
+
+    else:
+        print(f"  ⚠ Unsupported format '{suffix}' — cannot process.")
+        return
 
     SYSTEM = "You are a risk register specialist. Return ONLY valid JSON."
     USER = f"""Standardise these risk register rows to the mandatory output format.
 Output fields: risk_id, desc, stage, category, owner, l, i, priority, mit.
 If pre+post data exists include: l_pre, i_pre, priority_pre, l_post, i_post, priority_post.
 Scale L/I to 1-10. Priority: Low / Med / High.
-INPUT: {json.dumps(data[:30], indent=2)}
+INPUT: {source_payload}
 Return JSON array."""
 
     raw     = call_claude(client, SYSTEM, USER, max_tokens=4096)
@@ -915,11 +961,11 @@ def main():
 
     input_files = sorted(
         f for f in input_dir.glob("*")
-        if f.suffix.lower() in (".xlsx", ".xls", ".pdf")
+        if f.suffix.lower() in (".xlsx", ".xls", ".pdf", ".docx")
     )
 
     if not input_files:
-        print("No .xlsx / .xls / .pdf files found in ./input")
+        print("No .xlsx / .xls / .pdf / .docx files found in ./input")
         return
 
     print(f"Found {len(input_files)} file(s) to process\n")
