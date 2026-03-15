@@ -182,21 +182,6 @@ The `output/` directory is created automatically if it does not exist.
 
 ---
 
-## Running the Tests
-
-```bash
-python test_model.py
-```
-
-The test script:
-
-1. Processes the three training input files using the model
-2. Locates the corresponding reference Final workbooks automatically
-3. Compares row counts and all mandatory field values
-4. Reports pass/fail status and a value match rate for each file
-
----
-
 ## How It Works
 
 ### 1. File Detection and Extraction
