@@ -182,6 +182,16 @@ The `output/` directory is created automatically if it does not exist.
 
 ---
 
+## Validation
+
+```bash
+python test_model.py
+```
+
+Runs the model against the three training inputs, compares each output to its reference Final workbook, and reports row count match and value match rate per file. Test outputs are written to `test_outputs/`.
+
+---
+
 ## How It Works
 
 ### 1. File Detection and Extraction
