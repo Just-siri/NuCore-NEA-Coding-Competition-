@@ -198,7 +198,7 @@ Runs the model against the three training inputs, compares each output to its re
 
 - File type and family are detected from the filename
 - Excel files are read with `openpyxl`; PDF files have text extracted using
-  `pdfminer.six`
+  `pdfplumber`
 - All source columns are read dynamically — no column positions are assumed
 
 ### 2. Claude API Enhancement

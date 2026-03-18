@@ -2,13 +2,10 @@
 anthropic>=0.40.0
 openpyxl>=3.1.0
 python-dotenv>=1.0.0
+pandas>=2.0.0
 
 # PDF extraction (required for File 5 PDF input)
-pdfminer.six>=20221105
+pdfplumber>=0.10.0
 
 # Word document extraction (required for .docx input)
 python-docx>=1.1.0
-
-# Optional PDF fallbacks (used automatically if pdfminer.six is unavailable)
-# pypdf>=3.0.0
-# PyPDF2>=3.0.0
