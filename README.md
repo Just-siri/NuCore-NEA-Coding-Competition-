@@ -111,22 +111,15 @@ $env:ANTHROPIC_API_KEY = "your-api-key-here"
 
 ## Usage
 
-Place input files in the `input/` directory, then run:
+The `input/` folder is included in the repository with all five risk registers.
+Simply run:
 
 ```bash
 python model.py
 ```
 
-```
-input/
-├── 1. IVC DOE R2 (Input).xlsx
-├── 2. City of York Council (Input).xlsx
-├── 3. Digital Security IT Sample Register (Input).xlsx
-├── 4. Moorgate Crossrail Register (Input).xlsx
-└── 5. Corporate_Risk_Register (Input).pdf
-```
-
 Outputs are written to `output/` with `(Final)` appended to each filename.
+To process your own files, place them in the `input/` folder before running.
 
 ---
 
